@@ -122,10 +122,11 @@ The tool must produce outputs that are admissible as evidence in Spanish legal p
 
 #### Reporting
 
-- **FR-009**: System MUST generate a report containing, for each file: filename, relative path, file size, SHA-256 hash, MD5 hash, TSA timestamps (one per server with server identity and signing time), and file-type-specific metadata.
+- **FR-009**: System MUST generate a report containing, for each file: filename, relative path, file size, SHA-256 hash, MD5 hash, TSA timestamps (one per server with server identity and signing time), and file-type-specific metadata. The report MUST also include the archive-level metadata: the archive ZIP file's own SHA-256 and MD5 hashes, archive file size, total file count, and archive creation timestamp.
 - **FR-010**: System MUST generate the report in PDF/A-3 format for long-term legal preservation.
-- **FR-011**: System MUST extract video-specific metadata: duration, frame count, frames per second (FPS), bitrate, resolution (width x height), video codec/encoder, audio codec (if present).
-- **FR-012**: System MUST extract image-specific metadata: image format, resolution (width x height), color mode, bits per channel, EXIF data (where available).
+- **FR-011**: System MUST extract video-specific metadata using ffprobe (bundled with FFmpeg): duration, frame count, frames per second (FPS), bitrate, resolution (width x height), video codec/encoder, audio codec (if present).
+- **FR-012**: System MUST extract image-specific metadata using ffprobe (bundled with FFmpeg): image format, resolution (width x height), color mode, bits per channel, pixel format, EXIF data (where available).
+- **FR-011a**: System MUST check for FFmpeg availability at startup; if ffprobe is not found on the system PATH, the tool MUST error and exit with a clear message unless the `--skip-ffmpeg-meta` flag is passed, which allows the run to proceed with basic metadata only (size, hashes, filename).
 - **FR-013**: System MUST extract document-specific metadata: page count, author, creation date (where embedded), format/type.
 - **FR-014**: System MUST cryptographically sign the report (PAdES — PDF Advanced Electronic Signature) using a digital certificate, establishing authorship and integrity.
 - **FR-015**: System MUST sign the ZIP archive with a detached cryptographic signature (CAdES or equivalent), establishing chain of custody.
@@ -140,10 +141,12 @@ The tool must produce outputs that are admissible as evidence in Spanish legal p
 
 #### Configuration
 
-- **FR-021**: System MUST be configurable via a user-editable configuration file listing TSA server URLs.
-- **FR-022**: System MUST ship with a default configuration file containing a pre-populated list of qualified EU TSA providers.
+- **FR-021**: System MUST store all run state and configuration in a `.signed_archive/` folder located inside the `--input` target directory.
+- **FR-022**: System MUST use a YAML configuration file (`.signed_archive/config.yml`) for TSA server URLs and runtime options. The tool MUST generate a default `config.yml` on first run if none exists.
 - **FR-023**: System MUST validate TSA server URLs at startup and reject malformed URLs with a clear error message.
 - **FR-024**: System MUST allow configuration of retry policy (max retries, backoff strategy, timeout) for TSA requests.
+- **FR-021a**: System MUST preserve the previous run's file hashes and metadata in `.signed_archive/state.json` for comparison on iterative runs. Comparison MUST be based on hash values, not just filenames.
+- **FR-022a**: The default TSA server list MUST include the following three qualified Spanish TSA providers: ACCV (Comunidad Valenciana — http://tss.accv.es:8318/tsa), CATCert (Catalunya — http://psis.catcert.net/psis/catcert/tsp), and IZENPE (País Vasco — http://tsa.izenpe.com).
 
 #### Verification
 
@@ -197,16 +200,18 @@ The tool must produce outputs that are admissible as evidence in Spanish legal p
 
 4. **Digital Certificate for Signing**: The user must provide a digital certificate (X.509) for signing the report and archive. The tool will use this certificate; it does not generate certificates. For legal validity in Spain, the certificate should be issued by a qualified trust service provider recognized under eIDAS (e.g., FNMT — Fábrica Nacional de Moneda y Timbre, or other EU qualified providers).
 
-5. **TSA Server Availability**: The tool assumes TSA servers are publicly accessible via HTTPS and comply with RFC 3161. The default list will include at least 3 qualified EU TSA providers (e.g., from the EU Trusted List — EUTL).
+5. **TSA Servers**: The three default TSA servers are qualified Spanish providers under eIDAS: ACCV (Comunidad Valenciana — http://tss.accv.es:8318/tsa), CATCert (Catalunya — http://psis.catcert.net/psis/catcert/tsp), and IZENPE (País Vasco — http://tsa.izenpe.com). All use RFC 3161 over HTTP. The tool queries all three for every file to provide triple corroboration.
 
-6. **Metadata Extraction Scope**: File-type-specific metadata extraction covers common formats. Uncommon or proprietary formats will have basic metadata only (filename, size, hashes). The supported formats for deep metadata extraction are: MP4, MOV, AVI, MKV (video); JPEG, PNG, TIFF, GIF, BMP, WebP (images); PDF, DOCX, ODT (documents); plain text files.
+6. **Metadata Extraction via FFmpeg**: Video and image metadata extraction relies on ffprobe (bundled with FFmpeg). FFmpeg must be installed and available on the system PATH. If unavailable, the `--skip-ffmpeg-meta` flag skips deep metadata extraction and records only basic metadata (size, hashes, filename). The tool errors by default if ffmpeg is not found, since video/image metadata is critical for the tool's legal validity purpose.
 
-7. **ZIP Format Limitations**: The ZIP64 extension will be used if files or archive exceed 4GB. ZIP comments may be used to store run metadata.
+7. **Run State Storage**: Iterative run metadata (file hashes, TSA timestamps, metadata snapshots) is stored in `.signed_archive/state.json` inside the input directory. The configuration is stored in `.signed_archive/config.yml`. Both files are regenerated or updated on each run to reflect the latest state for the next comparison.
 
-8. **Platform Support**: The CLI tool targets Windows, macOS, and Linux. Windows is the initial target given the development environment.
+8. **ZIP Format**: The ZIP64 extension will be used if files or archive exceed 4GB. The archive is created in the output directory with an ISO 8601 timestamp in the filename (e.g., `archive_20260729T203000Z.zip`). The archive's own hash is computed after creation and included in the report for self-referential integrity verification.
 
-9. **Single Directory Scope**: Each run targets one directory. Nested subdirectories are processed recursively. Symlinks are followed by default with a configurable option to skip them.
+9. **Platform Support**: The CLI tool targets Windows, macOS, and Linux. Windows is the initial target given the development environment.
 
-10. **TSA Timestamp Clock Skew**: Timestamps from different TSA servers may differ by a few seconds due to clock skew. The tool accepts timestamps from each server independently without attempting to reconcile clock differences, but flags skews exceeding 5 seconds in the log.
+10. **Single Directory Scope**: Each run targets one directory. Nested subdirectories are processed recursively. Symlinks are followed by default with a configurable option to skip them.
 
-11. **Legal Disclaimer**: While the tool incorporates technical measures supporting legal validity, the user is responsible for ensuring their specific use case meets legal requirements (e.g., using a qualified certificate, retaining the signed report and archive, following procedural requirements under Spanish Law 6/2020 regulating trust services).
+11. **TSA Timestamp Clock Skew**: Timestamps from different TSA servers may differ by a few seconds due to clock skew. The tool accepts timestamps from each server independently without attempting to reconcile clock differences, but flags skews exceeding 5 seconds in the log.
+
+12. **Legal Disclaimer**: While the tool incorporates technical measures supporting legal validity, the user is responsible for ensuring their specific use case meets legal requirements (e.g., using a qualified certificate, retaining the signed report and archive, following procedural requirements under Spanish Law 6/2020 regulating trust services).
