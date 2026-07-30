@@ -55,6 +55,9 @@ def archive_command(
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Compute hashes and metadata only, do not create archive"
     ),
+    max_workers: Optional[int] = typer.Option(
+        None, "--max-workers", help="Maximum number of parallel workers for file processing (default: CPU count)"
+    ),
 ) -> int:
     cert_path = cert or _parse_path_env("SIGNED_ARCHIVE_CERT")
     cert_key_path = cert_key or _parse_path_env("SIGNED_ARCHIVE_CERT_KEY")
@@ -77,6 +80,7 @@ def archive_command(
         timeout=timeout,
         no_sign=no_sign or (not cert_path),
         dry_run=dry_run,
+        max_workers=max_workers,
     )
 
 

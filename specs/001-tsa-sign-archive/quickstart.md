@@ -7,7 +7,6 @@ This guide provides runnable validation scenarios to verify the feature works en
 - Python 3.11+ with the project dependencies installed (`uv sync`)
 - FFmpeg installed and on PATH (or use `--skip-ffmpeg-meta`)
 - A test directory with sample files (videos, images, documents)
-- Optional: An X.509 digital certificate for signing (can use `--no-sign` for testing)
 
 ## Scenario 1: First-Time Archive (Baseline)
 
@@ -23,7 +22,7 @@ echo "Hello, archive!" > test_data/document.txt
 
 **Run**:
 ```bash
-signed-archive archive --input test_data --output ./output --no-sign
+signed-archive archive --input test_data --output ./output
 ```
 
 **Expected Result**:
@@ -32,7 +31,8 @@ signed-archive archive --input test_data --output ./output --no-sign
   - `state.json` (run state with hashes and timestamps)
 - In `./output/`:
   - `archive_<timestamp>.zip` — ZIP of test_data contents
-  - `report_<timestamp>.pdf` — unsigned PDF/A-3 report
+  - `report_<timestamp>.pdf` — PDF/A-3 report
+  - `report_<timestamp>.json` — JSON report with full TSA timestamps (authoritative integrity record)
   - `run_<timestamp>.log` — execution log
 - The report contains per-file: SHA-256, MD5, file size, TSA timestamps (3 per file), and any extracted metadata
 - The report also contains the archive's own SHA-256 hash
@@ -41,7 +41,7 @@ signed-archive archive --input test_data --output ./output --no-sign
 ```bash
 signed-archive verify --archive ./output/archive_<timestamp>.zip --report ./output/report_<timestamp>.pdf
 ```
-Expected: `OVERALL: PASS` (except report signature check which will show unsigned)
+Expected: `OVERALL: PASS`
 
 ---
 
@@ -63,7 +63,7 @@ echo "Modified content!" > test_data/document.txt
 
 **Run**:
 ```bash
-signed-archive archive --input test_data --output ./output --no-sign
+signed-archive archive --input test_data --output ./output
 ```
 
 **Expected Result**:
@@ -90,7 +90,7 @@ signed-archive archive --input test_data --output ./output --no-sign
 
 **Run**:
 ```bash
-signed-archive archive --input test_data --output ./output --no-sign
+signed-archive archive --input test_data --output ./output
 ```
 
 **Expected Result**:
@@ -101,11 +101,11 @@ signed-archive archive --input test_data --output ./output --no-sign
 **Edge case tests**:
 ```bash
 # Test --skip-ffmpeg-meta
-signed-archive archive --input test_data --output ./output --no-sign --skip-ffmpeg-meta
+signed-archive archive --input test_data --output ./output --skip-ffmpeg-meta
 # Should succeed but report shows "no specialized metadata available" for media files
 
 # Test missing ffmpeg (move ffprobe out of PATH or use a system without it)
-signed-archive archive --input test_data --output ./output --no-sign
+signed-archive archive --input test_data --output ./output
 # Should error: "ffprobe not found. Install ffmpeg or use --skip-ffmpeg-meta"
 ```
 
@@ -128,7 +128,7 @@ servers:
 
 **Run**:
 ```bash
-signed-archive archive --input test_data --output ./output --no-sign
+signed-archive archive --input test_data --output ./output
 ```
 
 **Expected Result**:
@@ -167,7 +167,7 @@ signed-archive config init --input test_data --force
 
 ## Scenario 6: Signed Archive with Certificate
 
-**Goal**: Full legal-grade archive with signed report and signed ZIP.
+**Goal**: Full legal-grade archive with signed ZIP archive.
 
 **Prerequisites**: A valid X.509 certificate (PEM/P12) with private key.
 
@@ -181,13 +181,12 @@ signed-archive archive \
 ```
 
 **Expected Result**:
-- Report is signed with PAdES signature (visible in PDF readers as a digital signature)
 - A detached signature file `archive_<timestamp>.zip.sig` is created
-- Verification command confirms both signatures are valid:
+- Verification command confirms archive integrity:
   ```bash
   signed-archive verify --archive ./output/archive_<timestamp>.zip --report ./output/report_<timestamp>.pdf
   ```
-  Expected: `Report Signature Check: PASS` and `Archive Signature Check: PASS`
+  Expected: `Archive Hash Check: PASS` and all file hashes match
 
 ---
 
@@ -197,7 +196,7 @@ signed-archive archive \
 
 **Run** (immediately after a successful run, without modifying files):
 ```bash
-signed-archive archive --input test_data --output ./output --no-sign
+signed-archive archive --input test_data --output ./output
 ```
 
 **Expected Result**:
@@ -224,5 +223,5 @@ rm -rf test_data ./output
 5. Archive hash included in report for self-referential verification
 6. `.signed_archive/` folder persists state between runs
 7. FFmpeg check errors by default; `--skip-ffmpeg-meta` bypasses
-8. Verification command independently validates all signatures and hashes
+8. Verification command independently validates all TSA timestamps and file hashes
 9. TSA server failures don't block the run if minimum servers respond

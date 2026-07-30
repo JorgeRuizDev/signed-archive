@@ -12,7 +12,7 @@
 
 ### User Story 1 - First-Time Archive Creation (Priority: P1)
 
-A user has a directory of digital evidence (videos, images, documents) that needs to be timestamped and archived with legal validity under Spanish law. They run the CLI tool, pointing it at the directory. The tool computes cryptographic hashes (SHA-256, MD5) for every file, extracts file-specific metadata (video duration/frames/fps/bitrate/resolution/encoder, image format/resolution, document page count/author), sends each file's hash to multiple TSA servers (at least 2) to obtain RFC 3161 timestamps, creates a timestamped ZIP archive, and generates a signed report containing all signatures, hashes, and metadata.
+A user has a directory of digital evidence (videos, images, documents) that needs to be timestamped and archived with legal validity under Spanish law. They run the CLI tool, pointing it at the directory. The tool computes cryptographic hashes (SHA-256, MD5) for every file, extracts file-specific metadata (video duration/frames/fps/bitrate/resolution/encoder, image format/resolution, document page count/author), sends each file's hash to multiple TSA servers (at least 2) to obtain RFC 3161 timestamps, creates a timestamped ZIP archive, and generates a report containing all signatures, hashes, and metadata.
 
 **Why this priority**: This is the core value proposition — without initial archiving, no other workflows (iterative updates, tamper detection) are possible.
 
@@ -20,7 +20,7 @@ A user has a directory of digital evidence (videos, images, documents) that need
 
 **Acceptance Scenarios**:
 
-1. **Given** a directory with 10 files (images, videos, text documents), **When** the user runs the tool for the first time, **Then** a timestamped ZIP archive is created containing all files, a signed PDF/A report is generated listing each file with its SHA-256, MD5, file-specific metadata, and TSA timestamps from all configured servers, and a run log is produced.
+1. **Given** a directory with 10 files (images, videos, text documents), **When** the user runs the tool for the first time, **Then** a timestamped ZIP archive is created containing all files, a PDF/A report is generated listing each file with its SHA-256, MD5, file-specific metadata, and TSA timestamps from all configured servers, and a run log is produced.
 2. **Given** a TSA server is unreachable, **When** the tool attempts to obtain a timestamp, **Then** the tool retries according to configured retry policy and logs the failure; the run succeeds as long as at least one TSA server responds.
 3. **Given** a file type with no specialized metadata extractor (e.g., unknown binary format), **When** the tool processes it, **Then** basic metadata (filename, size, SHA-256, MD5) is still recorded and the report notes "no specialized metadata available" for that file.
 
@@ -80,13 +80,13 @@ The tool must produce outputs that are admissible as evidence in Spanish legal p
 
 **Why this priority**: The user explicitly requires legal validity in Spain. Without meeting eIDAS standards, the tool fails its primary purpose regardless of other functionality.
 
-**Independent Test**: An independent legal/technical auditor can verify that timestamps are obtained from qualified eIDAS TSA providers, the report format conforms to PDF/A-3 for long-term preservation, and the cryptographic signatures follow recognized standards (X.509, RFC 3161, CAdES/PAdES).
+**Independent Test**: An independent legal/technical auditor can verify that timestamps are obtained from qualified eIDAS TSA providers, the report format conforms to PDF/A-3 for long-term preservation, and the cryptographic timestamps follow recognized standards (X.509, RFC 3161, CAdES).
 
 **Acceptance Scenarios**:
 
 1. **Given** the tool is configured with the default TSA server list, **When** it obtains timestamps, **Then** all TSA servers in the list are qualified providers under EU eIDAS (listed in the EU Trusted List — EUTL).
-2. **Given** the tool produces a report, **When** the report is inspected, **Then** it conforms to PDF/A-3 format with embedded signature (PAdES) suitable for long-term archival.
-3. **Given** a legal proceeding requires evidence of file integrity at a specific point in time, **When** the signed report and timestamped archive are presented, **Then** the timestamps from multiple independent qualified TSAs provide corroborating proof of file existence and integrity at the timestamped moment.
+2. **Given** the tool produces a report, **When** the report is inspected, **Then** it conforms to PDF/A-3 format suitable for long-term archival.
+3. **Given** a legal proceeding requires evidence of file integrity at a specific point in time, **When** the report and timestamped archive are presented, **Then** the timestamps from multiple independent qualified TSAs provide corroborating proof of file existence and integrity at the timestamped moment.
 
 ---
 
@@ -128,7 +128,7 @@ The tool must produce outputs that are admissible as evidence in Spanish legal p
 - **FR-012**: System MUST extract image-specific metadata using ffprobe (bundled with FFmpeg): image format, resolution (width x height), color mode, bits per channel, pixel format, EXIF data (where available).
 - **FR-011a**: System MUST check for FFmpeg availability at startup; if ffprobe is not found on the system PATH, the tool MUST error and exit with a clear message unless the `--skip-ffmpeg-meta` flag is passed, which allows the run to proceed with basic metadata only (size, hashes, filename).
 - **FR-013**: System MUST extract document-specific metadata: page count, author, creation date (where embedded), format/type.
-- **FR-014**: System MUST cryptographically sign the report (PAdES — PDF Advanced Electronic Signature) using a digital certificate, establishing authorship and integrity.
+- **FR-014**: System MUST generate a JSON output alongside the PDF report containing all file records, hashes, metadata, and TSA timestamps in a machine-parseable format. This JSON report serves as the authoritative integrity record.
 - **FR-015**: System MUST sign the ZIP archive with a detached cryptographic signature (CAdES or equivalent), establishing chain of custody.
 
 #### Change Detection
@@ -153,7 +153,7 @@ The tool must produce outputs that are admissible as evidence in Spanish legal p
 - **FR-025**: System MUST provide a verification command that validates the integrity of a signed report and its associated ZIP archive.
 - **FR-026**: Verification MUST check that every file hash in the report matches the corresponding file in the ZIP archive.
 - **FR-027**: Verification MUST validate all TSA timestamps cryptographically (signature verification of each RFC 3161 token).
-- **FR-028**: Verification MUST validate the report's own digital signature (PAdES signature integrity).
+- **FR-028**: Verification MUST validate the JSON report integrity by verifying that all TSA timestamps are cryptographically valid and file hashes match.
 - **FR-029**: Verification MUST produce a human-readable verification report indicating pass/fail per file and per TSA timestamp.
 
 #### Output & Logging
@@ -167,6 +167,21 @@ The tool must produce outputs that are admissible as evidence in Spanish legal p
 - **FR-033**: System MUST use streaming I/O for hashing and archiving large files to avoid memory exhaustion.
 - **FR-034**: System MUST handle filenames with Unicode characters correctly on all supported platforms.
 - **FR-035**: System MUST use file locking to prevent corruption when multiple instances run against the same directory.
+
+#### Parallel Execution
+
+- **FR-036**: System MUST process files (hashing and metadata extraction) in parallel using a configurable thread pool to improve throughput for directories with many files.
+- **FR-037**: System MUST provide a `--max-workers` CLI option on the `archive` command to control the number of parallel file-processing threads (default: number of CPU cores).
+
+#### JSON Output
+
+- **FR-038**: System MUST generate a JSON output file (e.g., `report_<TS>.json`) alongside the PDF report that contains all file records, hashes, metadata, TSA timestamps, and archive-level metadata in a machine-parseable format.
+- **FR-039**: System MUST also generate a delta JSON output file (`delta_<TS>.json`) when changes are detected on iterative runs, containing the same change information as the delta PDF report.
+- **FR-040**: The JSON output files MUST include SHA-256 and MD5 hashes in their full, untruncated form.
+
+#### Report Integrity
+
+- **FR-041**: System MUST display SHA-256 hashes (64 hex characters) in their full, untruncated form in all PDF reports, using appropriate layout or font sizing to accommodate the full hash.
 
 ### Key Entities
 
@@ -183,7 +198,7 @@ The tool must produce outputs that are admissible as evidence in Spanish legal p
 
 - **SC-001**: A first-time user can archive a directory of up to 1,000 files and receive a complete signed report within 5 minutes (assuming responsive TSA servers and typical file sizes under 100MB total).
 - **SC-002**: The iterative update process correctly identifies 100% of added, removed, and modified files when comparing against a previous archive report.
-- **SC-003**: A third-party verifier (without access to the tool's private keys) can independently validate the report signature, all TSA timestamps, and file integrity using only the report, ZIP archive, and public certificates.
+- **SC-003**: A third-party verifier (without access to the tool's private keys) can independently validate all TSA timestamps and file integrity using only the report, ZIP archive, and public certificates.
 - **SC-004**: The tool produces a valid timestamp from at least 2 independent TSA servers for every file processed, providing corroborating evidence.
 - **SC-005**: The generated report conforms to PDF/A-3 specification as validated by a standards-compliant PDF/A conformance checker, ensuring long-term (10+ years) legal admissibility.
 - **SC-006**: 95% of file-specific metadata (video duration/fps/resolution/codec, image format/resolution, document page count) is correctly extracted for common file formats (MP4, MOV, AVI, JPEG, PNG, TIFF, PDF, DOCX).
@@ -194,11 +209,11 @@ The tool must produce outputs that are admissible as evidence in Spanish legal p
 
 1. **Report Format**: PDF/A-3 is chosen as the report format because it is the ISO standard (ISO 19005-3) for long-term electronic document preservation and is recognized in EU/Spanish legal contexts. Markdown was considered but rejected as it lacks embedded signatures and long-term archival properties.
 
-2. **Report Signing**: The report will be digitally signed (PAdES baseline) to establish authorship and integrity. This is necessary for legal chain of custody — an unsigned report could be challenged as self-serving.
+2. **Report Integrity**: The integrity of the report is established through the TSA timestamps embedded in the JSON output. The JSON report contains full cryptographic hashes and RFC 3161 timestamp tokens that can be independently verified by third parties without the tool. This is necessary for legal chain of custody — the timestamps provide proof of file existence and integrity at the time of signing.
 
-3. **Archive Signing**: The ZIP archive will have a detached cryptographic signature (CAdES format) to prove the archive was produced by the tool and has not been tampered with. This completes the chain of custody: signed report references signed archive.
+3. **Archive Signing**: The ZIP archive will have a detached cryptographic signature (CAdES format) to prove the archive was produced by the tool and has not been tampered with. This completes the chain of custody: the report references the signed archive.
 
-4. **Digital Certificate for Signing**: The user must provide a digital certificate (X.509) for signing the report and archive. The tool will use this certificate; it does not generate certificates. For legal validity in Spain, the certificate should be issued by a qualified trust service provider recognized under eIDAS (e.g., FNMT — Fábrica Nacional de Moneda y Timbre, or other EU qualified providers).
+4. **Digital Certificate for Archive Signing**: The user may provide a digital certificate (X.509) for signing the ZIP archive. The tool will use this certificate if provided; it does not generate certificates. For legal validity in Spain, the certificate should be issued by a qualified trust service provider recognized under eIDAS (e.g., FNMT — Fábrica Nacional de Moneda y Timbre, or other EU qualified providers).
 
 5. **TSA Servers**: The three default TSA servers are qualified Spanish providers under eIDAS: ACCV (Comunidad Valenciana — http://tss.accv.es:8318/tsa), CATCert (Catalunya — http://psis.catcert.net/psis/catcert/tsp), and IZENPE (País Vasco — http://tsa.izenpe.com). All use RFC 3161 over HTTP. The tool queries all three for every file to provide triple corroboration.
 

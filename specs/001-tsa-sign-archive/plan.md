@@ -6,7 +6,7 @@
 
 ## Summary
 
-Build a Python CLI tool that timestamps files using 3 qualified Spanish TSA providers (ACCV, CATCert, IZENPE) via RFC 3161, archives them into a timestamped ZIP, and generates eIDAS-compliant signed PDF/A-3 reports with full file metadata. Video/image metadata is extracted via ffprobe (FFmpeg). Iterative runs detect changes (added/removed/modified files) via hash-based comparison stored in `.signed_archive/state.json`. The tool targets legal validity in Spain under EU eIDAS Regulation 910/2014.
+Build a Python CLI tool that timestamps files using 3 qualified Spanish TSA providers (ACCV, CATCert, IZENPE) via RFC 3161, archives them into a timestamped ZIP, and generates eIDAS-compliant PDF/A-3 reports with full file metadata. Video/image metadata is extracted via ffprobe (FFmpeg). Iterative runs detect changes (added/removed/modified files) via hash-based comparison stored in `.signed_archive/state.json`. The JSON report serves as the authoritative integrity record with embedded TSA timestamps. The tool targets legal validity in Spain under EU eIDAS Regulation 910/2014.
 
 ## Technical Context
 
@@ -18,7 +18,6 @@ Build a Python CLI tool that timestamps files using 3 qualified Spanish TSA prov
 - `cryptography` — X.509 certificate handling, CMS/CAdES signing, cryptographic primitives
 - `asn1crypto` — ASN.1 parsing/building for RFC 3161 TimeStampReq/TimeStampResp structures
 - `fpdf2` — PDF/A-3 generation for reports
-- `endesive` — PAdES baseline signatures on PDF reports
 - `PyYAML` — YAML configuration file parsing
 - `portalocker` — cross-platform file locking
 - `ffmpeg` (system dependency) — video/image metadata extraction via `ffprobe` subprocess
@@ -28,7 +27,8 @@ Build a Python CLI tool that timestamps files using 3 qualified Spanish TSA prov
 - `.signed_archive/state.json` — previous run hashes and metadata for change detection
 - `<output>/archive_<ISO8601>.zip` — timestamped ZIP archive
 - `<output>/archive_<ISO8601>.zip.sig` — detached CAdES signature for archive
-- `<output>/report_<ISO8601>.pdf` — signed PDF/A-3 report
+- `<output>/report_<ISO8601>.pdf` — PDF/A-3 report
+- `<output>/report_<ISO8601>.json` — JSON report with full TSA timestamps (authoritative integrity record)
 - `<output>/delta_<ISO8601>.pdf` — delta change report (iterative runs only)
 - `<output>/run_<ISO8601>.log` — run execution log
 
@@ -46,7 +46,6 @@ Build a Python CLI tool that timestamps files using 3 qualified Spanish TSA prov
 **Constraints**:
 - PDF/A-3 compliance (validated by standards-compliant PDF/A conformance checker)
 - RFC 3161 compliant TSA communication
-- PAdES BASELINE-B/LT signature levels
 - CAdES detached signature for ZIP archives
 - Streaming I/O for large files (no full-file buffering)
 - File locking to prevent concurrent-run corruption
@@ -102,7 +101,7 @@ src/signed_archive/
 │   ├── hasher.py        # SHA-256, MD5 streaming hashing
 │   ├── tsa.py           # RFC 3161 TSA client (TimeStampReq → TimeStampResp)
 │   ├── archiver.py      # ZIP archive creation (iterative)
-│   ├── signer.py        # PAdES (report) + CAdES (archive) signing
+│   ├── signer.py        # CAdES (archive) signing
 │   ├── metadata.py      # File-type-specific metadata extraction (ffprobe + fallbacks)
 │   └── verifier.py      # Report + archive verification logic
 ├── models/

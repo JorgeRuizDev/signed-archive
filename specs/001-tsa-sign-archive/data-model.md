@@ -142,7 +142,7 @@ Parsed from `.signed_archive/config.yml`.
 [Start] → [Load Config] → [FFmpeg Check] → [Load Previous State]
   → [Walk Directory] → [Hash & Collect Metadata] → [Compare with Previous State]
     → [TSA Timestamp New/Changed Files] → [Build ZIP Archive]
-      → [Compute Archive Hash] → [Sign Report (PAdES)] → [Sign Archive (CAdES)]
+      → [Compute Archive Hash] → [Generate Report (PDF + JSON)] → [Sign Archive (CAdES)]
         → [Write State to .signed_archive/] → [Done]
 ```
 

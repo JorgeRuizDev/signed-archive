@@ -2,11 +2,8 @@ import hashlib
 import re
 import zlib
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from zipfile import ZipFile
-
-from endesive import pdf as endesive_pdf
 
 from signed_archive.services.hasher import hash_file
 from signed_archive.services.tsa import verify_tsa_timestamp
@@ -18,9 +15,6 @@ class VerificationReport:
     archive_path: str = ""
     report_path: str = ""
     archive_hash_check: bool = True
-    report_signature_valid: bool = False
-    signer: str = ""
-    signed_at: str = ""
     files_total: int = 0
     files_matched: int = 0
     files_mismatched: int = 0
@@ -49,8 +43,6 @@ def verify_archive_integrity(archive_path: Path, report_path: Path) -> Verificat
         result.archive_hash_check = archive_sha256.startswith(expected_archive_hash)
     else:
         result.archive_hash_check = True
-
-    _check_pades_signature(result, report_path)
 
     tsa_entries = _parse_tsa_entries_from_report(report_text)
     _check_file_hashes(result, archive_path, expected_hashes, tsa_entries)
@@ -192,37 +184,6 @@ def _parse_tsa_entries_from_report(report_text: str) -> list[dict]:
     return entries
 
 
-def _check_pades_signature(result: VerificationReport, report_path: Path) -> None:
-    try:
-        pdf_data = report_path.read_bytes()
-        sigs = endesive_pdf.verify(pdf_data)
-        if sigs and len(sigs) > 0:
-            result.report_signature_valid = True
-            sig = sigs[0]
-            if isinstance(sig, dict):
-                if sig.get('signature_ok', True) is False:
-                    result.report_signature_valid = False
-                result.signer = str(sig.get('signer', sig.get('common_name', '')))
-                signing_time = sig.get('signing_time', sig.get('signing_date', ''))
-                if isinstance(signing_time, bytes):
-                    try:
-                        signing_time = signing_time.decode('ascii', errors='ignore')
-                    except Exception:
-                        signing_time = str(signing_time)
-                if isinstance(signing_time, datetime):
-                    signing_time = signing_time.isoformat()
-                result.signed_at = str(signing_time) if signing_time else ''
-            elif isinstance(sig, (list, tuple)):
-                result.signer = ''
-                result.signed_at = ''
-            else:
-                result.signer = str(sig) if sig else ''
-        else:
-            result.report_signature_valid = False
-    except Exception:
-        result.report_signature_valid = False
-
-
 def _check_file_hashes(
     result: VerificationReport,
     archive_path: Path,
@@ -318,7 +279,5 @@ def _determine_overall(result: VerificationReport) -> str:
     if result.files_mismatched > 0:
         return 'FAIL'
     if result.tsa_invalid > 0:
-        return 'FAIL'
-    if not result.report_signature_valid:
         return 'FAIL'
     return 'PASS'

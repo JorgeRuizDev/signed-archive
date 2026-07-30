@@ -21,7 +21,7 @@ Commands:
 
 ## Subcommand: `archive`
 
-Run the archiving process: hash files, query TSA servers, create ZIP, generate signed reports.
+Run the archiving process: hash files, query TSA servers, create ZIP, generate reports.
 
 ```
 Usage: signed-archive archive [OPTIONS]
@@ -48,10 +48,13 @@ Options:
       --timeout INTEGER           TSA request timeout in seconds
                                   (default: 30)
       --no-sign                   Skip digital signing of report and archive.
-                                  Report still generated as unsigned PDF/A-3.
+                                   Report still generated as unsigned PDF/A-3.
       --dry-run                   Compute hashes and metadata but do NOT
-                                  query TSA servers, create archive, or
-                                  generate reports. Useful for preview.
+                                   query TSA servers, create archive, or
+                                   generate reports. Useful for preview.
+      --max-workers INTEGER       Maximum number of parallel workers for
+                                   file hashing and metadata extraction
+                                   (default: number of CPU cores).
       --help                      Show this message and exit.
 
 Exit Codes:
@@ -70,8 +73,10 @@ All output files use ISO 8601 UTC timestamps in their names.
 |-------------|-------------|
 | `archive_<TS>.zip` | ZIP archive of input directory |
 | `archive_<TS>.zip.sig` | Detached CAdES signature for the ZIP |
-| `report_<TS>.pdf` | Signed PDF/A-3 archive report |
+| `report_<TS>.pdf` | PDF/A-3 archive report |
+| `report_<TS>.json` | Machine-parseable JSON report with full TSA timestamps (authoritative integrity record) |
 | `delta_<TS>.pdf` | Delta change report (iterative runs only; omitted if no changes or first run) |
+| `delta_<TS>.json` | Machine-parseable JSON delta report (iterative runs only) |
 | `run_<TS>.log` | Run execution log |
 
 Where `<TS>` = `YYYYMMDDTHHMMSSZ` (e.g., `20260729T203000Z`).
@@ -112,10 +117,6 @@ Report:   report_20260729T203000Z.pdf
 Archive Hash Check .................. PASS
   SHA-256 matches report record
 
-Report Signature Check .............. PASS
-  Signer: CN=Jorge, O=Example, C=ES
-  Signed at: 2026-07-29T20:30:00Z
-
 File Integrity Check ................ PASS
   Files checked: 10 | Matched: 10 | Mismatched: 0
 
@@ -143,12 +144,6 @@ OVERALL: PASS
     "sha256": "a0b1c2d3e4f5...",
     "md5": "1a2b3c4d5e6f...",
     "checks": { "hash_matches_report": true }
-  },
-  "report": {
-    "path": "report_20260729T203000Z.pdf",
-    "signature_valid": true,
-    "signer": "CN=Jorge, O=Example, C=ES",
-    "signed_at": "2026-07-29T20:30:00Z"
   },
   "files": {
     "total": 10,

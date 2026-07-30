@@ -21,7 +21,7 @@
 **Purpose**: Project initialization and basic package structure
 
 - [X] T001 Create project directory structure: `src/signed_archive/` with subpackages `cli/`, `services/`, `models/`, `config/`, `utils/` and `tests/unit/`, `tests/integration/`, `tests/fixtures/`
-- [X] T002 Update `pyproject.toml` with required dependencies: `typer`, `httpx`, `cryptography`, `asn1crypto`, `fpdf2`, `endesive`, `PyYAML`, `portalocker`; add `[project.scripts]` entry point `signed-archive = "signed_archive.cli.main:app"`
+- [X] T002 Update `pyproject.toml` with required dependencies: `typer`, `httpx`, `cryptography`, `asn1crypto`, `fpdf2`, `PyYAML`, `portalocker`; add `[project.scripts]` entry point `signed-archive = "signed_archive.cli.main:app"`
 - [X] T003 [P] Create `__init__.py` files for all packages: `src/signed_archive/__init__.py`, `src/signed_archive/cli/__init__.py`, `src/signed_archive/services/__init__.py`, `src/signed_archive/models/__init__.py`, `src/signed_archive/config/__init__.py`, `src/signed_archive/utils/__init__.py`, `tests/__init__.py`, `tests/unit/__init__.py`, `tests/integration/__init__.py`
 
 ---
@@ -71,18 +71,17 @@
 
 **US1 Independent Test**: Run `signed-archive archive --input <dir> --output <out> --no-sign` against any directory of mixed media files. Verify: ZIP archive created, PDF/A-3 report generated with per-file SHA-256/MD5/TSA timestamps/metadata, archive hash in report, run log produced.
 
-**US5 Independent Test**: A third-party auditor verifies timestamps come from qualified eIDAS providers (EUTL), report conforms to PDF/A-3 for long-term preservation, signatures follow PAdES-BASELINE-LT and CAdES standards with embedded certificate chains.
+**US5 Independent Test**: A third-party auditor verifies timestamps come from qualified eIDAS providers (EUTL), report conforms to PDF/A-3 for long-term preservation, signatures follow CAdES standards with embedded certificate chains.
 
 ### Implementation
 
 - [X] T018 [P] [US1] Implement ZIP archiver service in `src/signed_archive/services/archiver.py` (streaming ZIP creation preserving directory structure, original file modification times, ZIP64 for >4GB, Unicode filenames)
 - [X] T019 [P] [US1] Implement PDF/A-3 report generation in `src/signed_archive/services/reporter.py` (using fpdf2 with PDF/A-3 conformance: XMP metadata, embedded fonts, sRGB color profile; render per-file table with filename, relative path, size, SHA-256, MD5, type-specific metadata, TSA timestamps per server; include archive-level metadata: ZIP SHA-256, MD5, size, file count; generate archive hash after ZIP creation for self-referential integrity — FR-009, FR-010)
-- [X] T020 [US1] Implement PAdES-BASELINE-LT PDF signing in `src/signed_archive/services/signer.py` (using endesive + cryptography; sign report PDF with user-provided X.509 certificate; embed full certificate chain and revocation data (CRL/OCSP) for long-term validation — FR-014, SC-005)
-- [X] T021 [US1] Implement CAdES detached ZIP signing in `src/signed_archive/services/signer.py` (using cryptography CMS + asn1crypto; create detached signature file `.zip.sig` with ESS signing-certificate attributes; sign archive hash — FR-015)
-- [X] T022 [US1] Implement run orchestration pipeline in `src/signed_archive/cli/archive.py` (walk directory → hash files → classify types → extract metadata → query TSA servers concurrently → create ZIP → compute archive hash → generate report → sign report + archive → write state.json → write run log)
+- [X] T020 [US1] Implement CAdES detached ZIP signing in `src/signed_archive/services/signer.py` (using cryptography CMS + asn1crypto; create detached signature file `.zip.sig` with ESS signing-certificate attributes; sign archive hash — FR-015)
+- [X] T021 [US1] Implement run orchestration pipeline in `src/signed_archive/cli/archive.py` (walk directory → hash files → classify types → extract metadata → query TSA servers concurrently → create ZIP → compute archive hash → generate report (PDF + JSON) → sign archive → write state.json → write run log)
 - [X] T023 [US1] Implement CLI archive subcommand in `src/signed_archive/cli/archive.py` (typer command with all flags per contracts/cli.md: --input, --output, --cert, --cert-key, --cert-password, --tsa-config, --skip-ffmpeg-meta, --max-retries, --timeout, --no-sign, --dry-run; ffmpeg availability check with error/exit unless --skip-ffmpeg-meta; config auto-generation on first run; exit codes 0/1/2)
 - [X] T024 [US1] Implement main CLI entry point in `src/signed_archive/cli/main.py` (typer app with --version, --help; register archive subcommand; load env vars with CLI flag override per contracts/cli.md)
-- [X] T025 [US1] Implement output file naming with ISO 8601 UTC timestamps (`archive_<TS>.zip`, `archive_<TS>.zip.sig`, `report_<TS>.pdf`, `run_<TS>.log`) and first-run state.json writing to `.signed_archive/state.json`
+- [X] T025 [US1] Implement output file naming with ISO 8601 UTC timestamps (`archive_<TS>.zip`, `archive_<TS>.zip.sig`, `report_<TS>.pdf`, `report_<TS>.json`, `run_<TS>.log`) and first-run state.json writing to `.signed_archive/state.json`
 - [X] T026 [US1] Implement per-file error resilience (FR-032): catch read/perm errors per file, log and continue, mark file as skipped in report, aggregate errors for final exit code
 - [X] T027 [US5] Ensure multi-TSA minimum requirement enforcement in archive pipeline: validate at least `min_servers_required` TSA servers respond per file; flag files below threshold in report and exit code (FR-003, FR-005)
 - [X] T028 [US5] Add TSA certificate chain extraction and storage in TimestampSignature (extract TSA cert subject/issuer/serial from TimeStampToken for independent verification — FR-004)
@@ -142,9 +141,8 @@
 
 - [X] T044 [P] [US4] Implement archive integrity verification in `src/signed_archive/services/verifier.py` (FR-026: for each file in the report, extract corresponding file from ZIP, compute SHA-256, compare against report hash; report per-file PASS/FAIL)
 - [X] T045 [P] [US4] Implement TSA timestamp cryptographic verification in `src/signed_archive/services/verifier.py` (FR-027: parse stored TimeStampToken, verify signature with TSA certificate public key, verify hash matches file; handle expired cert with timestamp-time comparison per acceptance scenario 3)
-- [X] T046 [P] [US4] Implement PAdES report signature verification in `src/signed_archive/services/verifier.py` (FR-028: verify report's embedded digital signature using endesive; extract signer identity, signing time; validate signature integrity)
-- [X] T047 [US4] Implement verify CLI subcommand in `src/signed_archive/cli/verify.py` (per contracts/cli.md: --archive, --report required flags; --verify-tsa-certs for EUTL check; --output file; --format text|json; exit codes 0/1/2)
-- [X] T048 [US4] Implement verification report output formatting in `src/signed_archive/cli/verify.py` (text format: ascii table per contracts/cli.md with Archive Hash Check, Report Signature Check, File Integrity Check, TSA Timestamp Check, OVERALL; JSON format: matching schema per contracts/cli.md)
+- [X] T046 [US4] Implement verify CLI subcommand in `src/signed_archive/cli/verify.py` (per contracts/cli.md: --archive, --report required flags; --verify-tsa-certs for EUTL check; --output file; --format text|json; exit codes 0/1/2)
+- [X] T047 [US4] Implement verification report output formatting in `src/signed_archive/cli/verify.py` (text format: ascii table per contracts/cli.md with Archive Hash Check, File Integrity Check, TSA Timestamp Check, OVERALL; JSON format: matching schema per contracts/cli.md)
 - [X] T049 [US4] Register verify subcommand in `src/signed_archive/cli/main.py`
 
 **Checkpoint**: User Story 4 complete. Independent verification of all archive outputs functional.
@@ -234,8 +232,8 @@ Task: "Implement RFC 3161 TSA client in src/signed_archive/services/tsa.py"
 Task: "Implement ZIP archiver service in src/signed_archive/services/archiver.py"
 Task: "Implement PDF/A-3 report generation in src/signed_archive/services/reporter.py"
 
-# Then sequentially (signer depends on PDF report, CLI depends on all services):
-Task: "Implement PAdES + CAdES signing in src/signed_archive/services/signer.py"
+# Then sequentially (signer depends on services, CLI depends on all services):
+Task: "Implement CAdES signing in src/signed_archive/services/signer.py"
 Task: "Implement archive CLI subcommand + pipeline in src/signed_archive/cli/archive.py"
 Task: "Implement main CLI entry point in src/signed_archive/cli/main.py"
 ```

@@ -31,21 +31,16 @@ The `asn1crypto` library provides the necessary ASN.1 definitions for PKCS/PKIX 
 - `weasyprint` (HTML → PDF) + Ghostscript PDF/A conversion — two-step process adds complexity and external dependencies
 - `pikepdf` — excellent for manipulating existing PDFs but not for generating from scratch
 
-### 3. PAdES Signing of PDF Reports
+### 3. Report Generation
 
-**Decision**: `endesive` for PAdES baseline signatures.
+**Decision**: The PDF report is generated unsigned; integrity is established through the JSON report's embedded TSA timestamps.
 
-**Rationale**: `endesive` is the most complete Python library for PDF Advanced Electronic Signatures (PAdES). It supports:
-- PAdES-BASELINE-B (basic signature)
-- PAdES-BASELINE-T (with timestamp)
-- PAdES-BASELINE-LT (with validation material)
-- PAdES-BASELINE-LTA (with archive timestamp)
-
-For legal validity, PAdES-BASELINE-LT is the minimum (embeds certificate chain + revocation data). `endesive` works with `cryptography` X.509 certificates and supports external TSA timestamping.
+**Rationale**: The JSON report contains full cryptographic hashes and RFC 3161 timestamp tokens that serve as the authoritative integrity record. This avoids the complexity of PAdES-based PDF signing while maintaining legal-grade timestamp proof via the TSA servers. The JSON output is machine-parseable and can be independently verified by third parties.
 
 **Alternatives considered**:
+- `endesive` for PAdES baseline signatures — removed to simplify the tool; PDF signatures are redundant when every file and the archive already have TSA timestamps in the JSON report
 - `pyHanko` — also supports PAdES but primarily focused on Belgian eID; heavier dependency chain
-- Manual PKCS#7/CMS construction — extremely complex and error-prone for PDF incremental updates
+- Manual PKCS#7/CMS construction for PDF — extremely complex and error-prone for PDF incremental updates
 
 ### 4. CAdES Detached Signature for ZIP Archives
 

@@ -16,7 +16,7 @@ def verify_command(
         ..., "--archive", "-a", help="Path to the ZIP archive", exists=True, readable=True
     ),
     report: Path = typer.Option(
-        ..., "--report", "-r", help="Path to the signed report PDF", exists=True, readable=True
+        ..., "--report", "-r", help="Path to the report PDF", exists=True, readable=True
     ),
     verify_tsa_certs: bool = typer.Option(
         False, "--verify-tsa-certs", help="Also verify TSA certificates against EUTL"
@@ -64,13 +64,6 @@ def _format_text(result: VerificationReport) -> str:
     ah_status = "PASS" if result.archive_hash_check else "FAIL"
     lines.append(f"Archive Hash Check .................. {ah_status}")
 
-    rs_status = "PASS" if result.report_signature_valid else "FAIL"
-    lines.append(f"Report Signature Check .............. {rs_status}")
-    if result.signer:
-        lines.append(f"  Signer: {result.signer}")
-    if result.signed_at:
-        lines.append(f"  Signed at: {result.signed_at}")
-
     fi_status = "PASS" if result.files_total > 0 and result.files_mismatched == 0 else "FAIL"
     lines.append(f"File Integrity Check ................ {fi_status}")
     lines.append(f"  Files checked: {result.files_total} | Matched: {result.files_matched} | Mismatched: {result.files_mismatched}")
@@ -95,12 +88,6 @@ def _format_json(result: VerificationReport) -> str:
         "archive": {
             "path": str(result.archive_path),
             "checks": {"hash_matches_report": result.archive_hash_check},
-        },
-        "report": {
-            "path": str(result.report_path),
-            "signature_valid": result.report_signature_valid,
-            "signer": result.signer,
-            "signed_at": result.signed_at,
         },
         "files": {
             "total": result.files_total,

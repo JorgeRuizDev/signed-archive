@@ -9,13 +9,18 @@ DEFAULT_TSA_SERVERS = [
         enabled=True,
     ),
     TSAServer(
-        url="http://psis.catcert.net/psis/catcert/tsp",
-        label="CATCert - Catalunya",
+        url="https://freetsa.org/tsr",
+        label="FreeTSA",
         enabled=True,
     ),
     TSAServer(
-        url="http://tsa.izenpe.com",
-        label="IZENPE - País Vasco",
+        url="http://timestamp.digicert.com",
+        label="DigiCert",
+        enabled=True,
+    ),
+    TSAServer(
+        url="http://timestamp.sectigo.com",
+        label="Sectigo",
         enabled=True,
     ),
 ]

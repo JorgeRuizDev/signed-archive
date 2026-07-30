@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,8 +32,9 @@ from signed_archive.services.archiver import (
 from signed_archive.services.hasher import hash_file
 from signed_archive.services.logger import get_run_logger, init_run_logger
 from signed_archive.services.metadata import extract_metadata
-from signed_archive.services.reporter import generate_delta_report, generate_report
-from signed_archive.services.signer import load_certificate_and_key, sign_pdf, sign_zip_cades
+from signed_archive.services.reporter import generate_delta_report, generate_json_delta, generate_json_report, generate_report
+from signed_archive.services.cert_loader import load_certificate_and_key
+from signed_archive.services.signer import sign_zip_cades
 from signed_archive.services.tsa import query_tsa_server
 from signed_archive.utils.fs import check_ffprobe, walk_directory
 from signed_archive.utils.locking import file_lock
@@ -47,6 +49,25 @@ def _compute_config_hash(config: TSAConfiguration) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _process_single_file(filepath: Path, input_dir: Path, skip_ffmpeg_meta: bool) -> FileRecord:
+    rel_path = str(filepath.relative_to(input_dir)).replace("\\", "/")
+    sha256, md5 = hash_file(filepath)
+    file_size = filepath.stat().st_size
+    mtime = datetime.fromtimestamp(filepath.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    file_type, metadata = extract_metadata(filepath, skip_ffmpeg=skip_ffmpeg_meta)
+
+    return FileRecord(
+        relative_path=rel_path,
+        file_size=file_size,
+        sha256=sha256,
+        md5=md5,
+        modified_time=mtime,
+        file_type=file_type,
+        metadata=metadata,
+        status=FileStatus.PROCESSED,
+    )
+
+
 def _run_archive_pipeline(
     input_dir: Path,
     output_dir: Path,
@@ -59,6 +80,7 @@ def _run_archive_pipeline(
     timeout: int | None = None,
     no_sign: bool = False,
     dry_run: bool = False,
+    max_workers: int | None = None,
 ) -> int:
     logger = init_run_logger(output_dir)
     input_dir = input_dir.resolve()
@@ -114,54 +136,51 @@ def _run_archive_pipeline(
                 typer.echo("No files found to archive.")
                 return 0
 
-            for filepath in all_files:
-                typer.echo(f"  Processing: {filepath.relative_to(input_dir)}")
-                try:
-                    rel_path = str(filepath.relative_to(input_dir)).replace("\\", "/")
-                    sha256, md5 = hash_file(filepath)
-                    file_size = filepath.stat().st_size
-                    mtime = datetime.fromtimestamp(filepath.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    file_type, metadata = extract_metadata(filepath, skip_ffmpeg=skip_ffmpeg_meta)
+            if max_workers is None:
+                max_workers = os.cpu_count() or 4
 
-                    record = FileRecord(
-                        relative_path=rel_path,
-                        file_size=file_size,
-                        sha256=sha256,
-                        md5=md5,
-                        modified_time=mtime,
-                        file_type=file_type,
-                        metadata=metadata,
-                        status=FileStatus.PROCESSED,
+            with ThreadPoolExecutor(max_workers=max_workers) as file_executor:
+                futures = {}
+                for filepath in all_files:
+                    future = file_executor.submit(
+                        _process_single_file, filepath, input_dir, skip_ffmpeg_meta
                     )
-                    file_records[rel_path] = record
-                except PermissionError as e:
-                    logger.warning(f"Permission denied: {filepath}")
-                    rel_path = str(filepath.relative_to(input_dir)).replace("\\", "/")
-                    file_records[rel_path] = FileRecord(
-                        relative_path=rel_path,
-                        file_size=0,
-                        sha256="",
-                        md5="",
-                        modified_time="",
-                        file_type="other",
-                        status=FileStatus.SKIPPED_PERMISSION,
-                        error_message=str(e),
-                    )
-                    skipped += 1
-                except Exception as e:
-                    logger.error(f"Error processing {filepath}: {e}")
-                    rel_path = str(filepath.relative_to(input_dir)).replace("\\", "/")
-                    file_records[rel_path] = FileRecord(
-                        relative_path=rel_path,
-                        file_size=0,
-                        sha256="",
-                        md5="",
-                        modified_time="",
-                        file_type="other",
-                        status=FileStatus.ERROR,
-                        error_message=str(e),
-                    )
-                    errors += 1
+                    futures[future] = filepath
+
+                for future in as_completed(futures):
+                    filepath = futures[future]
+                    try:
+                        record = future.result()
+                        file_records[record.relative_path] = record
+                        typer.echo(f"  Processing: {record.relative_path}")
+                    except PermissionError as e:
+                        logger.warning(f"Permission denied: {filepath}")
+                        rel_path = str(filepath.relative_to(input_dir)).replace("\\", "/")
+                        file_records[rel_path] = FileRecord(
+                            relative_path=rel_path,
+                            file_size=0,
+                            sha256="",
+                            md5="",
+                            modified_time="",
+                            file_type="other",
+                            status=FileStatus.SKIPPED_PERMISSION,
+                            error_message=str(e),
+                        )
+                        skipped += 1
+                    except Exception as e:
+                        logger.error(f"Error processing {filepath}: {e}")
+                        rel_path = str(filepath.relative_to(input_dir)).replace("\\", "/")
+                        file_records[rel_path] = FileRecord(
+                            relative_path=rel_path,
+                            file_size=0,
+                            sha256="",
+                            md5="",
+                            modified_time="",
+                            file_type="other",
+                            status=FileStatus.ERROR,
+                            error_message=str(e),
+                        )
+                        errors += 1
 
             if dry_run:
                 typer.echo("\n" + "=" * 60)
@@ -197,12 +216,21 @@ def _run_archive_pipeline(
             files_below_threshold: list[str] = []
 
             if not dry_run:
+                tsa_file_count = sum(
+                    1 for r in file_records.values()
+                    if r.status == FileStatus.PROCESSED and r.sha256 not in ("", None)
+                )
+                tsa_done = 0
+
                 for rel_path, record in file_records.items():
                     if record.status != FileStatus.PROCESSED:
                         continue
 
                     if record.sha256 in ("", None):
                         continue
+
+                    tsa_done += 1
+                    typer.echo(f"  TSA timestamping [{tsa_done}/{tsa_file_count}]: {rel_path}")
 
                     timestamps: list[TimestampSignature] = []
                     with ThreadPoolExecutor(max_workers=len(enabled_servers)) as executor:
@@ -229,6 +257,9 @@ def _run_archive_pipeline(
 
                     record.tsa_timestamps = timestamps
 
+                    success_count = sum(1 for t in timestamps if t.status == TSAStatus.SUCCESS)
+                    typer.echo(f"    TSA results: {success_count}/{len(enabled_servers)} servers responded")
+
                     success_timestamps = [t for t in timestamps if t.status == TSAStatus.SUCCESS and t.signing_time]
                     if len(success_timestamps) >= 2:
                         parsed_times = []
@@ -244,8 +275,6 @@ def _run_archive_pipeline(
                                     "TSA clock skew detected for %s: %.1fs (threshold: %.1fs)",
                                     rel_path, skew, config.clock_skew_warning_threshold_seconds,
                                 )
-
-                    success_count = sum(1 for t in timestamps if t.status == TSAStatus.SUCCESS)
 
                     if success_count < config.min_servers_required:
                         files_below_threshold.append(rel_path)
@@ -284,6 +313,10 @@ def _run_archive_pipeline(
             logger.info(f"Generating report: {report_path}")
             generate_report(report_data, report_path)
 
+            report_json_path = output_dir / f"report_{ts}.json"
+            logger.info(f"Generating JSON report: {report_json_path}")
+            generate_json_report(report_data, report_json_path)
+
             if changes and previous_state:
                 delta_path = output_dir / f"delta_{ts}.pdf"
                 logger.info(f"Generating delta report: {delta_path}")
@@ -295,10 +328,18 @@ def _run_archive_pipeline(
                     delta_path,
                 )
 
+                delta_json_path = output_dir / f"delta_{ts}.json"
+                logger.info(f"Generating JSON delta report: {delta_json_path}")
+                generate_json_delta(
+                    report_data,
+                    list(changes.values()),
+                    previous_state.run_id,
+                    previous_state.run_timestamp,
+                    delta_json_path,
+                )
+
             if not no_sign and cert_path:
                 cert_der, key_der = load_certificate_and_key(cert_path, cert_key_path, cert_password)
-                sign_pdf(report_path, cert_der, key_der)
-                logger.info(f"Report signed (PAdES): {report_path}")
 
                 sig_path = output_dir / f"archive_{ts}.zip.sig"
                 sign_zip_cades(zip_path, cert_der, key_der, sig_path)
@@ -334,6 +375,7 @@ def _run_archive_pipeline(
 
             typer.echo(f"\nArchive: {zip_path}")
             typer.echo(f"Report: {report_path}")
+            typer.echo(f"JSON Report: {report_json_path}")
             typer.echo(f"Total files: {report_data.total_files}")
 
             if files_below_threshold:

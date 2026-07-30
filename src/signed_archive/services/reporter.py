@@ -1,3 +1,5 @@
+import json
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -65,9 +67,6 @@ def render_file_records(pdf: FPDF, records: list[FileRecord]):
     pdf.cell(0, 8, "File Records", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
 
-    width_col1 = pdf.w - pdf.l_margin - pdf.r_margin
-    width_col2 = 80
-
     for i, record in enumerate(records):
         if pdf.get_y() > pdf.h - 60:
             pdf.add_page()
@@ -79,9 +78,8 @@ def render_file_records(pdf: FPDF, records: list[FileRecord]):
         pdf.cell(0, 5, record.relative_path, fill=True, new_x="LMARGIN", new_y="NEXT")
 
         pdf.set_font("Helvetica", "", 7)
-        pdf.cell(width_col2, 4, f"SHA-256: {record.sha256[:32]}...", new_x="RIGHT", new_y="LAST")
-        pdf.cell(0, 4, f"Type: {record.file_type} | Size: {record.file_size} bytes", new_x="LMARGIN", new_y="NEXT")
-        pdf.cell(width_col2, 4, f"MD5: {record.md5}", new_x="RIGHT", new_y="LAST")
+        pdf.cell(0, 4, f"SHA-256: {record.sha256}", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 4, f"MD5: {record.md5} | Type: {record.file_type} | Size: {record.file_size} bytes", new_x="LMARGIN", new_y="NEXT")
         pdf.cell(0, 4, f"Modified: {record.modified_time}", new_x="LMARGIN", new_y="NEXT")
 
         if record.tsa_timestamps:
@@ -138,7 +136,7 @@ def generate_delta_report(
         pdf.cell(0, 7, "ADDED FILES", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 8)
         for c in added:
-            pdf.cell(0, 5, f"  + {c.relative_path}  SHA-256: {c.after_sha256[:32]}...", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 5, f"  + {c.relative_path}  SHA-256: {c.after_sha256}", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(3)
 
     if removed:
@@ -146,7 +144,7 @@ def generate_delta_report(
         pdf.cell(0, 7, "REMOVED FILES", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 8)
         for c in removed:
-            pdf.cell(0, 5, f"  - {c.relative_path}  SHA-256: {c.before_sha256[:32] if c.before_sha256 else 'N/A'}...", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 5, f"  - {c.relative_path}  SHA-256: {c.before_sha256 if c.before_sha256 else 'N/A'}", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(3)
 
     if modified:
@@ -155,8 +153,8 @@ def generate_delta_report(
         pdf.set_font("Helvetica", "", 8)
         for c in modified:
             pdf.cell(0, 5, f"  ~ {c.relative_path}", new_x="LMARGIN", new_y="NEXT")
-            pdf.cell(0, 5, f"      Before: {c.before_sha256[:32] if c.before_sha256 else 'N/A'}...", new_x="LMARGIN", new_y="NEXT")
-            pdf.cell(0, 5, f"      After:  {c.after_sha256[:32] if c.after_sha256 else 'N/A'}...", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 5, f"      Before: {c.before_sha256 if c.before_sha256 else 'N/A'}", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 5, f"      After:  {c.after_sha256 if c.after_sha256 else 'N/A'}", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(3)
 
     if meta_only:
@@ -168,4 +166,96 @@ def generate_delta_report(
         pdf.ln(3)
 
     pdf.output(str(output_path))
+    return output_path
+
+
+def _file_record_to_dict(record: FileRecord) -> dict:
+    metadata_dict = asdict(record.metadata) if record.metadata else None
+    return {
+        "relative_path": record.relative_path,
+        "file_size": record.file_size,
+        "sha256": record.sha256,
+        "md5": record.md5,
+        "modified_time": record.modified_time,
+        "file_type": record.file_type,
+        "status": record.status.value if hasattr(record.status, "value") else str(record.status),
+        "metadata": metadata_dict,
+        "tsa_timestamps": [asdict(ts) for ts in record.tsa_timestamps] if record.tsa_timestamps else [],
+        "error_message": record.error_message,
+    }
+
+
+def _delta_change_to_dict(change: DeltaChange) -> dict:
+    result = {
+        "change_type": change.change_type.value if hasattr(change.change_type, "value") else str(change.change_type),
+        "relative_path": change.relative_path,
+    }
+    if change.before_sha256 is not None:
+        result["before_sha256"] = change.before_sha256
+    if change.after_sha256 is not None:
+        result["after_sha256"] = change.after_sha256
+    if change.before_metadata is not None:
+        result["before_metadata"] = change.before_metadata
+    if change.after_metadata is not None:
+        result["after_metadata"] = change.after_metadata
+    return result
+
+
+def generate_json_report(report_data: ReportData, output_path: Path) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = {
+        "run_id": report_data.run_id,
+        "run_timestamp": report_data.run_timestamp,
+        "input_directory": report_data.input_directory,
+        "is_first_run": report_data.is_first_run,
+        "archive_sha256": report_data.archive_sha256,
+        "archive_md5": report_data.archive_md5,
+        "archive_size": report_data.archive_size,
+        "total_files": report_data.total_files,
+        "skipped_files": report_data.skipped_files,
+        "error_files": report_data.error_files,
+        "tsa_servers_used": report_data.tsa_servers_used,
+        "file_records": [_file_record_to_dict(r) for r in report_data.file_records],
+    }
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    return output_path
+
+
+def generate_json_delta(
+    report_data: ReportData,
+    changes: list[DeltaChange],
+    previous_run_id: str,
+    previous_run_timestamp: str,
+    output_path: Path,
+) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    added = sum(1 for c in changes if c.change_type == ChangeType.ADDED)
+    removed = sum(1 for c in changes if c.change_type == ChangeType.REMOVED)
+    modified = sum(1 for c in changes if c.change_type == ChangeType.MODIFIED)
+    metadata_changed = sum(1 for c in changes if c.change_type == ChangeType.METADATA_CHANGED)
+
+    data = {
+        "current_run": {
+            "run_id": report_data.run_id,
+            "run_timestamp": report_data.run_timestamp,
+        },
+        "previous_run": {
+            "run_id": previous_run_id,
+            "run_timestamp": previous_run_timestamp,
+        },
+        "summary": {
+            "added": added,
+            "removed": removed,
+            "modified": modified,
+            "metadata_changed": metadata_changed,
+        },
+        "changes": [_delta_change_to_dict(c) for c in changes],
+    }
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
     return output_path

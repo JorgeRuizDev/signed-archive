@@ -32,6 +32,6 @@
 ## Notes
 
 - All items pass validation.
-- The user's three open questions (report format, report signing, archive signing) were resolved with reasoned defaults based on Spanish/EU legal requirements (PDF/A-3 for reports, PAdES signing for reports, CAdES detached signature for archives).
-- The spec references standards (RFC 3161, eIDAS 910/2014, PDF/A-3 ISO 19005-3, PAdES, CAdES, EUTL) as compliance targets without prescribing specific implementations.
+- The user's open questions (report format, report integrity, archive signing) were resolved with reasoned defaults based on Spanish/EU legal requirements (PDF/A-3 for reports, TSA timestamps in JSON for integrity, CAdES detached signature for archives).
+- The spec references standards (RFC 3161, eIDAS 910/2014, PDF/A-3 ISO 19005-3, CAdES, EUTL) as compliance targets without prescribing specific implementations.
 - Assumption 11 includes a legal disclaimer noting that the tool provides technical measures but the user bears responsibility for procedural legal compliance.

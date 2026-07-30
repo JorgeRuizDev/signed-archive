@@ -55,7 +55,10 @@ def _extract_token_info(token: cms.ContentInfo) -> dict:
     if signing_time and hasattr(signing_time, "isoformat"):
         signing_time = signing_time.isoformat()
 
-    certs = signed_data.get("certificates", [])
+    try:
+        certs = signed_data["certificates"]
+    except (KeyError, AttributeError):
+        certs = []
     tsa_cert = None
     for c in certs:
         try:
@@ -78,9 +81,13 @@ def _extract_token_info(token: cms.ContentInfo) -> dict:
         except Exception:
             issuer = str(tsa_cert.issuer.native)
     if tsa_cert and hasattr(tsa_cert, "serial_number"):
-        serial = tsa_cert.serial_number.native
+        sn = tsa_cert.serial_number
+        serial = sn.native if hasattr(sn, "native") else int(sn)
 
-    digest_algo = signer_info.get("digest_algorithm", {})
+    try:
+        digest_algo = signer_info["digest_algorithm"]
+    except (KeyError, AttributeError):
+        digest_algo = {}
     digest_oid = ""
     try:
         digest_oid = digest_algo["algorithm"].dotted
